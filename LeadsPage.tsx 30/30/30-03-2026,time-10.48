@@ -1,0 +1,1853 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+
+type Lead = {
+  id: string;
+  name: string;
+  phone: string;
+  location: string;
+  source: string;
+  owner: string;
+  status: string;
+  dealValue: number | string;
+  followUp: string;
+  createdAt: string;
+  propertyType: string;
+  areaValue: string;
+  areaUnit: string;
+  facing: string;
+  bhk?: string;
+  notes?: string[];
+};
+
+const STORAGE_KEY = "mei_leads_v1";
+const owners = ["Ravi", "Meena", "Sabari", "Admin"];
+
+const ownerPhoneMap: Record<string, string> = {
+  Ravi: "919876543210",
+  Meena: "919876543211",
+  Sabari: "919884452255",
+  Admin: "919876543213",
+};
+
+const callOutcomeOptions = [
+  "Called",
+  "No Answer",
+  "Interested",
+  "Not Interested",
+  "Visit Fixed",
+];
+
+const emptyLeadForm = {
+  name: "",
+  phone: "",
+  location: "",
+  source: "Website",
+  owner: "",
+  status: "New",
+  propertyType: "Plot",
+  areaValue: "",
+  areaUnit: "sqft",
+  facing: "",
+  bhk: "",
+  dealValue: "",
+  followUp: "",
+};
+
+function LeadsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [searchTerm, setSearchTerm] = useState(searchParams.get("search") || "");
+  const [ownerFilter, setOwnerFilter] = useState(
+    searchParams.get("owner") || "All Owners"
+  );
+  const [statusFilter, setStatusFilter] = useState(
+    searchParams.get("status") || "All Status"
+  );
+  const [sourceFilter, setSourceFilter] = useState(
+    searchParams.get("source") || "All Sources"
+  );
+  const [specialFilter, setSpecialFilter] = useState(
+    searchParams.get("filter") || ""
+  );
+  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+
+  const [notesLeadId, setNotesLeadId] = useState<string | null>(null);
+  const [newNoteText, setNewNoteText] = useState("");
+  const [callOutcome, setCallOutcome] = useState("");
+  const [rescheduleDate, setRescheduleDate] = useState("");
+
+  const [form, setForm] = useState({ ...emptyLeadForm });
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const safeLeads = Array.isArray(parsed)
+          ? parsed.map((lead) => ({
+              ...lead,
+              notes: Array.isArray(lead.notes) ? lead.notes : [],
+            }))
+          : [];
+        setLeads(safeLeads);
+        return;
+      } catch (error) {
+        console.error("Failed to parse leads:", error);
+      }
+    }
+
+    const demoLeads: Lead[] = [
+      {
+        id: crypto.randomUUID(),
+        name: "paul",
+        phone: "7358162409",
+        location: "Chennai",
+        source: "99acres",
+        owner: "Ravi",
+        status: "Follow-up",
+        dealValue: 3600000,
+        followUp: "2026-03-31",
+        createdAt: "2026-03-29",
+        propertyType: "Plot",
+        areaValue: "2400",
+        areaUnit: "sqft",
+        facing: "East",
+        bhk: "",
+        notes: [
+          "29/03/2026 - Asked for east facing plot options.",
+          "29/03/2026 - Wants callback after 6 PM.",
+        ],
+      },
+      {
+        id: crypto.randomUUID(),
+        name: "kumar",
+        phone: "9885544771",
+        location: "Chennai",
+        source: "Referral",
+        owner: "Admin",
+        status: "Follow-up",
+        dealValue: 12200000,
+        followUp: "2026-03-29",
+        createdAt: "2026-03-29",
+        propertyType: "Flat",
+        areaValue: "1200",
+        areaUnit: "sqft",
+        facing: "North",
+        bhk: "2",
+        notes: ["29/03/2026 - Interested in ready-to-move flat."],
+      },
+      {
+        id: crypto.randomUUID(),
+        name: "Arun Kumar",
+        phone: "9876543210",
+        location: "Whitefield",
+        source: "Website",
+        owner: "Meena",
+        status: "New",
+        dealValue: 4500000,
+        followUp: "2026-03-30",
+        createdAt: "2026-03-28",
+        propertyType: "Villa",
+        areaValue: "2400",
+        areaUnit: "sqft",
+        facing: "East",
+        bhk: "3",
+        notes: [],
+      },
+      {
+        id: crypto.randomUUID(),
+        name: "Priya",
+        phone: "9123456780",
+        location: "Sarjapur",
+        source: "Referral",
+        owner: "Sabari",
+        status: "Follow-up",
+        dealValue: 8200000,
+        followUp: "2026-03-25",
+        createdAt: "2026-03-28",
+        propertyType: "Plot",
+        areaValue: "1500",
+        areaUnit: "sqft",
+        facing: "South",
+        bhk: "",
+        notes: ["28/03/2026 - Follow-up missed yesterday."],
+      },
+    ];
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(demoLeads));
+    setLeads(demoLeads);
+  }, []);
+
+  useEffect(() => {
+    setSearchTerm(searchParams.get("search") || "");
+    setOwnerFilter(searchParams.get("owner") || "All Owners");
+    setStatusFilter(searchParams.get("status") || "All Status");
+    setSourceFilter(searchParams.get("source") || "All Sources");
+    setSpecialFilter(searchParams.get("filter") || "");
+  }, [searchParams]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(event.target as Node)) {
+        setOpenMenuId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const today = new Date();
+  const todayString = today.toISOString().split("T")[0];
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const tomorrowString = tomorrow.toISOString().split("T")[0];
+
+  const normalizeDate = (dateStr: string) => {
+    if (!dateStr) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+
+    const ddmmyyyy = /^(\d{2})-(\d{2})-(\d{4})$/;
+    const match = dateStr.match(ddmmyyyy);
+    if (match) {
+      const [, dd, mm, yyyy] = match;
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    return dateStr;
+  };
+
+  const isOverdue = (lead: Lead) => {
+    const follow = normalizeDate(lead.followUp);
+    if (!follow) return false;
+    if (lead.status === "Closed" || lead.status === "Lost") return false;
+    return follow < todayString;
+  };
+
+  const isTodayFollowUp = (lead: Lead) => {
+    const follow = normalizeDate(lead.followUp);
+    if (!follow) return false;
+    if (lead.status === "Closed" || lead.status === "Lost") return false;
+    return follow === todayString;
+  };
+
+  const isTomorrowFollowUp = (lead: Lead) => {
+    const follow = normalizeDate(lead.followUp);
+    if (!follow) return false;
+    if (lead.status === "Closed" || lead.status === "Lost") return false;
+    return follow === tomorrowString;
+  };
+
+  const saveToStorage = (updated: Lead[]) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    setLeads(updated);
+  };
+
+  const autoAssignOwner = (name: string) => {
+    if (!name.trim()) return "Admin";
+    const index = name.trim().charCodeAt(0) % owners.length;
+    return owners[index];
+  };
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
+
+    setForm((prev) => {
+      const updated = { ...prev, [name]: value };
+
+      if (name === "propertyType" && !["Flat", "Villa"].includes(value)) {
+        updated.bhk = "";
+      }
+
+      return updated;
+    });
+  };
+
+  const resetForm = () => {
+    setForm({ ...emptyLeadForm });
+    setEditingLeadId(null);
+  };
+
+  const getPropertyInfo = (lead: Lead) => {
+    const parts: string[] = [];
+
+    if (lead.propertyType) parts.push(lead.propertyType);
+    if (["Flat", "Villa"].includes(lead.propertyType) && lead.bhk) {
+      parts.push(`${lead.bhk} BHK`);
+    }
+    if (lead.areaValue && lead.areaUnit) {
+      parts.push(`${lead.areaValue} ${lead.areaUnit}`);
+    }
+    if (lead.facing) parts.push(lead.facing);
+
+    return parts.join(" • ");
+  };
+
+  const getLatestNote = (lead: Lead) => {
+    if (!lead.notes || lead.notes.length === 0) return "";
+    return lead.notes[lead.notes.length - 1];
+  };
+
+  const formatCurrency = (value: number | string) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "-";
+    return `₹ ${num.toLocaleString("en-IN")}`;
+  };
+
+  const buildLeadWhatsappMessage = (lead: Lead) => {
+    return `Hi ${lead.name}, this is MEI Business OS.
+
+Following up regarding your property inquiry.
+
+Property: ${getPropertyInfo(lead) || "-"}
+Location: ${lead.location}
+Source: ${lead.source}
+Deal Value: ${formatCurrency(lead.dealValue)}
+Follow-up Date: ${lead.followUp || "-"}
+
+Our team will contact you shortly.`;
+  };
+
+  const buildOwnerWhatsappMessage = (lead: Lead) => {
+    return `New Lead Assigned
+
+Name: ${lead.name}
+Phone: ${lead.phone}
+Location: ${lead.location}
+Source: ${lead.source}
+Property: ${getPropertyInfo(lead) || "-"}
+Assigned Owner: ${lead.owner}
+Deal Value: ${formatCurrency(lead.dealValue)}
+Follow-up: ${lead.followUp || "-"}
+
+Please contact this lead immediately.`;
+  };
+
+  const openWhatsApp = (phone: string, message: string) => {
+    if (!phone) {
+      alert("Phone number missing.");
+      return;
+    }
+
+    const cleanPhone = phone.replace(/\D/g, "");
+    const encoded = encodeURIComponent(message);
+    const url = `https://wa.me/${cleanPhone}?text=${encoded}`;
+    window.open(url, "_blank");
+  };
+
+  const addQuickNoteToLead = (leadId: string) => {
+    const noteText = window.prompt("Enter note for this lead:");
+    if (!noteText || !noteText.trim()) return;
+
+    const stampedNote = `${new Date().toLocaleDateString("en-GB")} - ${noteText.trim()}`;
+
+    const updated = leads.map((lead) =>
+      lead.id === leadId
+        ? { ...lead, notes: [...(lead.notes || []), stampedNote] }
+        : lead
+    );
+
+    saveToStorage(updated);
+    setOpenMenuId(null);
+    alert("Note added successfully.");
+  };
+
+  const openNotesPanel = (leadId: string) => {
+    const selected = leads.find((lead) => lead.id === leadId);
+    setNotesLeadId(leadId);
+    setNewNoteText("");
+    setCallOutcome("");
+    setRescheduleDate(selected?.followUp || "");
+    setOpenMenuId(null);
+  };
+
+  const closeNotesPanel = () => {
+    setNotesLeadId(null);
+    setNewNoteText("");
+    setCallOutcome("");
+    setRescheduleDate("");
+  };
+
+  const selectedLead = useMemo(
+    () => leads.find((lead) => lead.id === notesLeadId) || null,
+    [leads, notesLeadId]
+  );
+
+  const savePanelNote = () => {
+    if (!selectedLead) return;
+    if (!newNoteText.trim()) return;
+
+    const stampedNote = `${new Date().toLocaleDateString("en-GB")} - ${newNoteText.trim()}`;
+
+    const updated = leads.map((lead) =>
+      lead.id === selectedLead.id
+        ? { ...lead, notes: [...(lead.notes || []), stampedNote] }
+        : lead
+    );
+
+    saveToStorage(updated);
+    setNewNoteText("");
+  };
+
+  const saveCallLogAndReschedule = () => {
+    if (!selectedLead) return;
+
+    const logParts: string[] = [];
+    if (callOutcome) logParts.push(`Outcome: ${callOutcome}`);
+    if (rescheduleDate) logParts.push(`Next Follow-up: ${normalizeDate(rescheduleDate)}`);
+    if (newNoteText.trim()) logParts.push(`Note: ${newNoteText.trim()}`);
+
+    if (logParts.length === 0) {
+      alert("Add call outcome, date, or note before saving.");
+      return;
+    }
+
+    const stampedLog = `${new Date().toLocaleDateString("en-GB")} - ${logParts.join(" | ")}`;
+
+    const nextStatus =
+      callOutcome === "Visit Fixed"
+        ? "Visit Planned"
+        : callOutcome === "Not Interested"
+        ? "Lost"
+        : callOutcome === "Interested" || callOutcome === "Called" || callOutcome === "No Answer"
+        ? "Follow-up"
+        : selectedLead.status;
+
+    const updated = leads.map((lead) =>
+      lead.id === selectedLead.id
+        ? {
+            ...lead,
+            status: nextStatus,
+            followUp: rescheduleDate ? normalizeDate(rescheduleDate) : lead.followUp,
+            notes: [...(lead.notes || []), stampedLog],
+          }
+        : lead
+    );
+
+    saveToStorage(updated);
+    setNewNoteText("");
+    setCallOutcome("");
+    alert("Call log and follow-up updated.");
+  };
+
+  const handleSaveLead = () => {
+    if (!form.name || !form.phone || !form.location) {
+      alert("Name, Phone, Location required.");
+      return;
+    }
+
+    if (editingLeadId) {
+      const updated = leads.map((lead) =>
+        lead.id === editingLeadId ? { ...lead, ...form } : lead
+      );
+      saveToStorage(updated);
+      resetForm();
+      alert("Lead updated successfully.");
+      return;
+    }
+
+    const assignedOwner = form.owner || autoAssignOwner(form.name);
+
+    const newLead: Lead = {
+      id: crypto.randomUUID(),
+      name: form.name,
+      phone: form.phone,
+      location: form.location,
+      source: form.source,
+      owner: assignedOwner,
+      status: form.status,
+      propertyType: form.propertyType,
+      areaValue: form.areaValue,
+      areaUnit: form.areaUnit,
+      facing: form.facing,
+      bhk: form.bhk,
+      dealValue: form.dealValue,
+      followUp: normalizeDate(form.followUp),
+      createdAt: new Date().toISOString().split("T")[0],
+      notes: [],
+    };
+
+    const updated = [newLead, ...leads];
+    saveToStorage(updated);
+    resetForm();
+
+    const ok = window.confirm(
+      `Lead auto assigned to ${assignedOwner}. Send WhatsApp alert now?`
+    );
+
+    if (ok) {
+      openWhatsApp(
+        ownerPhoneMap[assignedOwner],
+        buildOwnerWhatsappMessage(newLead)
+      );
+    }
+  };
+
+  const handleEditLead = (lead: Lead) => {
+    setEditingLeadId(lead.id);
+    setForm({
+      name: lead.name || "",
+      phone: lead.phone || "",
+      location: lead.location || "",
+      source: lead.source || "Website",
+      owner: lead.owner || "",
+      status: lead.status || "New",
+      propertyType: lead.propertyType || "Plot",
+      areaValue: lead.areaValue || "",
+      areaUnit: lead.areaUnit || "sqft",
+      facing: lead.facing || "",
+      bhk: lead.bhk || "",
+      dealValue: String(lead.dealValue || ""),
+      followUp: normalizeDate(lead.followUp) || "",
+    });
+
+    setOpenMenuId(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleDeleteLead = (id: string) => {
+    const ok = window.confirm("Are you sure you want to delete this lead?");
+    if (!ok) return;
+
+    const updated = leads.filter((lead) => lead.id !== id);
+    saveToStorage(updated);
+
+    if (editingLeadId === id) resetForm();
+    if (notesLeadId === id) closeNotesPanel();
+
+    setOpenMenuId(null);
+    alert("Lead deleted successfully.");
+  };
+
+  const updateLeadOwner = (id: string, owner: string) => {
+    const updated = leads.map((lead) =>
+      lead.id === id ? { ...lead, owner } : lead
+    );
+    saveToStorage(updated);
+  };
+
+  const updateLeadStatus = (id: string, status: string) => {
+    const updated = leads.map((lead) =>
+      lead.id === id ? { ...lead, status } : lead
+    );
+    saveToStorage(updated);
+  };
+
+  const sourceOptions = useMemo(() => {
+    return Array.from(new Set(leads.map((lead) => lead.source).filter(Boolean)));
+  }, [leads]);
+
+  const filteredLeads = useMemo(() => {
+    return leads.filter((lead) => {
+      const query = searchTerm.toLowerCase().trim();
+
+      const matchesOwner =
+        ownerFilter === "All Owners" ? true : lead.owner === ownerFilter;
+
+      const matchesStatus =
+        statusFilter === "All Status" ? true : lead.status === statusFilter;
+
+      const matchesSource =
+        sourceFilter === "All Sources" ? true : lead.source === sourceFilter;
+
+      const matchesSpecial =
+        specialFilter === "overdue" ? isOverdue(lead) : true;
+
+      const latestNote = getLatestNote(lead).toLowerCase();
+
+      const matchesSearch =
+        !query ||
+        lead.name?.toLowerCase().includes(query) ||
+        lead.phone?.toLowerCase().includes(query) ||
+        lead.location?.toLowerCase().includes(query) ||
+        lead.source?.toLowerCase().includes(query) ||
+        lead.owner?.toLowerCase().includes(query) ||
+        lead.status?.toLowerCase().includes(query) ||
+        lead.propertyType?.toLowerCase().includes(query) ||
+        lead.areaUnit?.toLowerCase().includes(query) ||
+        lead.facing?.toLowerCase().includes(query) ||
+        getPropertyInfo(lead).toLowerCase().includes(query) ||
+        latestNote.includes(query);
+
+      return (
+        matchesOwner &&
+        matchesStatus &&
+        matchesSource &&
+        matchesSpecial &&
+        matchesSearch
+      );
+    });
+  }, [leads, searchTerm, ownerFilter, statusFilter, sourceFilter, specialFilter]);
+
+  const summaryStats = useMemo(() => {
+    return {
+      total: leads.length,
+      new: leads.filter((l) => l.status === "New").length,
+      follow: leads.filter((l) => l.status === "Follow-up").length,
+      visit: leads.filter((l) => l.status === "Visit Planned").length,
+      closed: leads.filter((l) => l.status === "Closed").length,
+      overdue: leads.filter((l) => isOverdue(l)).length,
+    };
+  }, [leads]);
+
+  const reminderData = useMemo(() => {
+    const todayItems = leads
+      .filter(isTodayFollowUp)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const overdueItems = leads
+      .filter(isOverdue)
+      .sort((a, b) => normalizeDate(a.followUp).localeCompare(normalizeDate(b.followUp)));
+
+    const tomorrowItems = leads
+      .filter(isTomorrowFollowUp)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      todayItems,
+      overdueItems,
+      tomorrowItems,
+    };
+  }, [leads]);
+
+  const activeChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string }> = [];
+
+    if (searchTerm.trim()) chips.push({ key: "search", label: `Search: ${searchTerm}` });
+    if (ownerFilter !== "All Owners") chips.push({ key: "owner", label: `Owner: ${ownerFilter}` });
+    if (statusFilter !== "All Status") chips.push({ key: "status", label: `Status: ${statusFilter}` });
+    if (sourceFilter !== "All Sources") chips.push({ key: "source", label: `Source: ${sourceFilter}` });
+    if (specialFilter === "overdue") chips.push({ key: "filter", label: "Overdue Only" });
+
+    return chips;
+  }, [searchTerm, ownerFilter, statusFilter, sourceFilter, specialFilter]);
+
+  const updateQueryParams = (updates: Record<string, string>) => {
+    const next = new URLSearchParams(searchParams);
+
+    Object.entries(updates).forEach(([key, value]) => {
+      const shouldDelete =
+        value === "" ||
+        value === "All Owners" ||
+        value === "All Status" ||
+        value === "All Sources";
+
+      if (shouldDelete) {
+        next.delete(key);
+      } else {
+        next.set(key, value);
+      }
+    });
+
+    setSearchParams(next);
+  };
+
+  const handleRemoveChip = (key: string) => {
+    if (key === "search") {
+      setSearchTerm("");
+      updateQueryParams({ search: "" });
+      return;
+    }
+    if (key === "owner") {
+      setOwnerFilter("All Owners");
+      updateQueryParams({ owner: "" });
+      return;
+    }
+    if (key === "status") {
+      setStatusFilter("All Status");
+      updateQueryParams({ status: "" });
+      return;
+    }
+    if (key === "source") {
+      setSourceFilter("All Sources");
+      updateQueryParams({ source: "" });
+      return;
+    }
+    if (key === "filter") {
+      setSpecialFilter("");
+      updateQueryParams({ filter: "" });
+    }
+  };
+
+  const clearAllFilters = () => {
+    setSearchTerm("");
+    setOwnerFilter("All Owners");
+    setStatusFilter("All Status");
+    setSourceFilter("All Sources");
+    setSpecialFilter("");
+    setSearchParams({});
+  };
+
+  return (
+    <>
+      <div style={{ padding: "28px" }}>
+        <div style={{ marginBottom: "18px" }}>
+          <div style={{ fontSize: "44px", fontWeight: 900, marginBottom: "8px" }}>
+            All Leads
+          </div>
+
+          <div
+            style={{
+              color: "#9fb1d1",
+              display: "flex",
+              gap: "10px",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <span>
+              Filtered Results: <strong style={{ color: "white" }}>{filteredLeads.length}</strong>
+            </span>
+
+            {(activeChips.length > 0 || editingLeadId) && (
+              <button
+                onClick={() => {
+                  clearAllFilters();
+                  if (editingLeadId) resetForm();
+                }}
+                style={topClearBtn}
+              >
+                Clear Filters
+              </button>
+            )}
+
+            <button onClick={() => navigate("/dashboard")} style={backBtn}>
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+
+        <div style={pillWrap}>
+          <SummaryPill label="Total" value={summaryStats.total} onClick={() => clearAllFilters()} />
+          <SummaryPill label="New" value={summaryStats.new} onClick={() => updateQueryParams({ status: "New", filter: "" })} />
+          <SummaryPill label="Follow-up" value={summaryStats.follow} onClick={() => updateQueryParams({ status: "Follow-up", filter: "" })} />
+          <SummaryPill label="Visit" value={summaryStats.visit} onClick={() => updateQueryParams({ status: "Visit Planned", filter: "" })} />
+          <SummaryPill label="Closed" value={summaryStats.closed} onClick={() => updateQueryParams({ status: "Closed", filter: "" })} />
+          <SummaryPill label="Overdue" value={summaryStats.overdue} danger onClick={() => updateQueryParams({ filter: "overdue", status: "" })} />
+        </div>
+
+        <div style={reminderGridStyle}>
+          <ReminderPanel
+            title="Today Follow-ups"
+            subtitle={todayString}
+            items={reminderData.todayItems}
+            emptyText="No follow-ups for today."
+            accent="blue"
+            getPropertyInfo={getPropertyInfo}
+            formatCurrency={formatCurrency}
+            onEdit={handleEditLead}
+          />
+
+          <ReminderPanel
+            title="Overdue Reminders"
+            subtitle="Needs immediate action"
+            items={reminderData.overdueItems}
+            emptyText="No overdue reminders."
+            accent="red"
+            getPropertyInfo={getPropertyInfo}
+            formatCurrency={formatCurrency}
+            onEdit={handleEditLead}
+          />
+
+          <ReminderPanel
+            title="Tomorrow Queue"
+            subtitle={tomorrowString}
+            items={reminderData.tomorrowItems}
+            emptyText="No follow-ups for tomorrow."
+            accent="amber"
+            getPropertyInfo={getPropertyInfo}
+            formatCurrency={formatCurrency}
+            onEdit={handleEditLead}
+          />
+        </div>
+
+        {activeChips.length > 0 && (
+          <div style={chipsWrapStyle}>
+            {activeChips.map((chip) => (
+              <button
+                key={chip.key}
+                onClick={() => handleRemoveChip(chip.key)}
+                style={chipStyle}
+              >
+                <span>{chip.label}</span>
+                <span style={{ opacity: 0.9 }}>×</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={cardStyle}>
+          <div style={cardTitle}>{editingLeadId ? "Edit Lead" : "Add Lead"}</div>
+
+          <div style={infoBarStyle}>
+            New lead save ஆனவுடன் owner auto assign ஆகும்.
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: "16px",
+            }}
+          >
+            <input name="name" value={form.name} onChange={handleChange} placeholder="Lead Name" style={inputStyle} />
+            <input name="phone" value={form.phone} onChange={handleChange} placeholder="Phone Number" style={inputStyle} />
+            <input name="location" value={form.location} onChange={handleChange} placeholder="Location" style={inputStyle} />
+
+            <select name="source" value={form.source} onChange={handleChange} style={inputStyle}>
+              <option value="Website">Website</option>
+              <option value="99acres">99acres</option>
+              <option value="Magicbricks">Magicbricks</option>
+              <option value="Referral">Referral</option>
+              <option value="Walk-in">Walk-in</option>
+            </select>
+
+            <select name="owner" value={form.owner} onChange={handleChange} style={inputStyle}>
+              <option value="">
+                Auto Assign → {form.name ? autoAssignOwner(form.name) : "Owner"}
+              </option>
+              {owners.map((owner) => (
+                <option key={owner} value={owner}>
+                  {owner}
+                </option>
+              ))}
+            </select>
+
+            <select name="status" value={form.status} onChange={handleChange} style={inputStyle}>
+              <option value="New">New</option>
+              <option value="Follow-up">Follow-up</option>
+              <option value="Visit Planned">Visit Planned</option>
+              <option value="Closed">Closed</option>
+              <option value="Lost">Lost</option>
+            </select>
+
+            <select name="propertyType" value={form.propertyType} onChange={handleChange} style={inputStyle}>
+              <option value="Plot">Plot</option>
+              <option value="Flat">Flat</option>
+              <option value="Villa">Villa</option>
+              <option value="Land">Land</option>
+              <option value="Commercial">Commercial</option>
+            </select>
+
+            <input name="areaValue" value={form.areaValue} onChange={handleChange} type="number" placeholder="Area Value" style={inputStyle} />
+
+            <select name="areaUnit" value={form.areaUnit} onChange={handleChange} style={inputStyle}>
+              <option value="sqft">Sqft</option>
+              <option value="cent">Cent</option>
+              <option value="ground">Ground</option>
+              <option value="acre">Acre</option>
+            </select>
+
+            <select name="facing" value={form.facing} onChange={handleChange} style={inputStyle}>
+              <option value="">Select Facing</option>
+              <option value="East">East</option>
+              <option value="West">West</option>
+              <option value="North">North</option>
+              <option value="South">South</option>
+              <option value="North-East">North-East</option>
+              <option value="North-West">North-West</option>
+              <option value="South-East">South-East</option>
+              <option value="South-West">South-West</option>
+            </select>
+
+            {["Flat", "Villa"].includes(form.propertyType) ? (
+              <select name="bhk" value={form.bhk} onChange={handleChange} style={inputStyle}>
+                <option value="">Select BHK</option>
+                <option value="1">1 BHK</option>
+                <option value="2">2 BHK</option>
+                <option value="3">3 BHK</option>
+                <option value="4">4 BHK</option>
+                <option value="5">5 BHK</option>
+              </select>
+            ) : (
+              <div />
+            )}
+
+            <input name="dealValue" value={form.dealValue} onChange={handleChange} type="number" placeholder="Deal Value" style={inputStyle} />
+            <input name="followUp" value={form.followUp} onChange={handleChange} type="date" style={inputStyle} />
+          </div>
+
+          <div style={{ display: "flex", gap: "12px", marginTop: "20px" }}>
+            <button onClick={handleSaveLead} style={primaryBtn}>
+              {editingLeadId ? "Update Lead" : "Save Lead"}
+            </button>
+            <button onClick={resetForm} style={secondaryBtn}>
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <div style={cardStyle}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 220px 220px 220px",
+              gap: "14px",
+            }}
+          >
+            <input
+              value={searchTerm}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSearchTerm(value);
+                updateQueryParams({ search: value });
+              }}
+              placeholder="Search by name, phone, location, source, owner, status, note..."
+              style={inputStyle}
+            />
+
+            <select
+              value={ownerFilter}
+              onChange={(e) => {
+                const value = e.target.value;
+                setOwnerFilter(value);
+                updateQueryParams({ owner: value });
+              }}
+              style={inputStyle}
+            >
+              <option>All Owners</option>
+              {owners.map((owner) => (
+                <option key={owner} value={owner}>
+                  {owner}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                const value = e.target.value;
+                setStatusFilter(value);
+                updateQueryParams({ status: value });
+              }}
+              style={inputStyle}
+            >
+              <option>All Status</option>
+              <option value="New">New</option>
+              <option value="Follow-up">Follow-up</option>
+              <option value="Visit Planned">Visit Planned</option>
+              <option value="Closed">Closed</option>
+              <option value="Lost">Lost</option>
+            </select>
+
+            <select
+              value={sourceFilter}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSourceFilter(value);
+                updateQueryParams({ source: value });
+              }}
+              style={inputStyle}
+            >
+              <option>All Sources</option>
+              {sourceOptions.map((source) => (
+                <option key={source} value={source}>
+                  {source}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {specialFilter === "overdue" && (
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "12px 14px",
+                borderRadius: "14px",
+                background: "rgba(127,29,29,0.22)",
+                border: "1px solid rgba(239,68,68,0.25)",
+                color: "#fecaca",
+                fontWeight: 700,
+              }}
+            >
+              Showing overdue leads only
+            </div>
+          )}
+        </div>
+
+        <div style={tableCardStyle}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "separate",
+              borderSpacing: 0,
+              minWidth: "1450px",
+              tableLayout: "fixed",
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={{ ...thStyle, width: "140px" }}>Name</th>
+                <th style={{ ...thStyle, width: "130px" }}>Phone</th>
+                <th style={{ ...thStyle, width: "130px" }}>Location</th>
+                <th style={{ ...thStyle, width: "230px" }}>Property Info</th>
+                <th style={{ ...thStyle, width: "180px" }}>Latest Note</th>
+                <th style={{ ...thStyle, width: "110px" }}>Source</th>
+                <th style={{ ...thStyle, width: "140px" }}>Owner</th>
+                <th style={{ ...thStyle, width: "170px" }}>Status</th>
+                <th style={{ ...thStyle, width: "140px" }}>Deal Value</th>
+                <th style={{ ...thStyle, width: "120px" }}>Follow-up</th>
+                <th style={{ ...thStyle, width: "110px" }}>Created</th>
+                <th style={{ ...thStyle, width: "110px" }}>Action</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filteredLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={12} style={emptyTdStyle}>
+                    No leads found.
+                  </td>
+                </tr>
+              ) : (
+                filteredLeads.map((lead) => {
+                  const overdue = isOverdue(lead);
+                  const isHovered = hoveredRowId === lead.id;
+                  const latestNote = getLatestNote(lead);
+
+                  return (
+                    <tr
+                      key={lead.id}
+                      onMouseEnter={() => setHoveredRowId(lead.id)}
+                      onMouseLeave={() => setHoveredRowId(null)}
+                      style={{
+                        background: overdue
+                          ? isHovered
+                            ? "linear-gradient(90deg, rgba(127,29,29,0.30), rgba(30,41,59,0.35))"
+                            : "linear-gradient(90deg, rgba(127,29,29,0.18), rgba(0,0,0,0))"
+                          : isHovered
+                          ? "rgba(37, 99, 235, 0.10)"
+                          : "transparent",
+                        boxShadow: isHovered
+                          ? overdue
+                            ? "inset 4px 0 0 #ef4444, inset 0 0 0 1px rgba(248,113,113,0.08)"
+                            : "inset 4px 0 0 #3b82f6, inset 0 0 0 1px rgba(96,165,250,0.08)"
+                          : overdue
+                          ? "inset 4px 0 0 #ef4444"
+                          : "inset 4px 0 0 transparent",
+                        transition: "background 0.18s ease, box-shadow 0.18s ease",
+                        cursor: "default",
+                      }}
+                    >
+                      <td style={tdStyle}>{lead.name}</td>
+                      <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{lead.phone}</td>
+                      <td style={tdStyle}>{lead.location}</td>
+                      <td style={tdStyle}>
+                        <div style={{ whiteSpace: "normal", lineHeight: 1.6, wordBreak: "break-word" }}>
+                          {getPropertyInfo(lead) || "-"}
+                        </div>
+                      </td>
+
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => openNotesPanel(lead.id)}
+                          style={notePreviewBtn}
+                        >
+                          {latestNote || "No notes"}
+                        </button>
+                      </td>
+
+                      <td style={tdStyle}>{lead.source}</td>
+
+                      <td style={tdStyle}>
+                        <select
+                          value={lead.owner}
+                          onChange={(e) => updateLeadOwner(lead.id, e.target.value)}
+                          style={{
+                            ...pillSelectStyle,
+                            background:
+                              lead.owner === "Ravi"
+                                ? "#0f9d8a"
+                                : lead.owner === "Meena"
+                                ? "#1fb954"
+                                : lead.owner === "Sabari"
+                                ? "#d81b60"
+                                : "#2f5be7",
+                          }}
+                        >
+                          {owners.map((owner) => (
+                            <option key={owner} value={owner}>
+                              {owner}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <select
+                            value={lead.status}
+                            onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
+                            style={{
+                              ...pillSelectStyle,
+                              background:
+                                lead.status === "New"
+                                  ? "#2563eb"
+                                  : lead.status === "Follow-up"
+                                  ? "#f59e0b"
+                                  : lead.status === "Visit Planned"
+                                  ? "#7c3aed"
+                                  : lead.status === "Closed"
+                                  ? "#16a34a"
+                                  : "#dc2626",
+                              minWidth: "140px",
+                            }}
+                          >
+                            <option value="New">New</option>
+                            <option value="Follow-up">Follow-up</option>
+                            <option value="Visit Planned">Visit Planned</option>
+                            <option value="Closed">Closed</option>
+                            <option value="Lost">Lost</option>
+                          </select>
+
+                          {overdue && <span style={overdueBadgeStyle}>Overdue</span>}
+                        </div>
+                      </td>
+
+                      <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                        {formatCurrency(lead.dealValue)}
+                      </td>
+
+                      <td
+                        style={{
+                          ...tdStyle,
+                          whiteSpace: "nowrap",
+                          color: overdue ? "#fca5a5" : "#ffffff",
+                          fontWeight: overdue ? 700 : 500,
+                        }}
+                      >
+                        {normalizeDate(lead.followUp) || "-"}
+                      </td>
+
+                      <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                        {normalizeDate(lead.createdAt) || "-"}
+                      </td>
+
+                      <td style={{ ...tdStyle, position: "relative" }}>
+                        <div ref={openMenuId === lead.id ? menuRef : null}>
+                          <button
+                            onClick={() =>
+                              setOpenMenuId((prev) => (prev === lead.id ? null : lead.id))
+                            }
+                            style={menuTriggerBtn}
+                          >
+                            ⋯
+                          </button>
+
+                          {openMenuId === lead.id && (
+                            <div style={menuPanelStyle}>
+                              <button
+                                onClick={() => {
+                                  openWhatsApp(
+                                    lead.phone,
+                                    buildLeadWhatsappMessage(lead)
+                                  );
+                                  setOpenMenuId(null);
+                                }}
+                                style={menuItemStyle}
+                              >
+                                WhatsApp Lead
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  openWhatsApp(
+                                    ownerPhoneMap[lead.owner],
+                                    buildOwnerWhatsappMessage(lead)
+                                  );
+                                  setOpenMenuId(null);
+                                }}
+                                style={menuItemStyle}
+                              >
+                                WhatsApp Owner
+                              </button>
+
+                              <button
+                                onClick={() => addQuickNoteToLead(lead.id)}
+                                style={menuItemStyle}
+                              >
+                                Add Note
+                              </button>
+
+                              <button
+                                onClick={() => openNotesPanel(lead.id)}
+                                style={menuItemStyle}
+                              >
+                                View Notes
+                              </button>
+
+                              <button
+                                onClick={() => handleEditLead(lead)}
+                                style={menuItemStyle}
+                              >
+                                Edit Lead
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteLead(lead.id)}
+                                style={{ ...menuItemStyle, color: "#fca5a5" }}
+                              >
+                                Delete Lead
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedLead && (
+        <div style={notesOverlayStyle} onClick={closeNotesPanel}>
+          <div style={notesPanelStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={notesPanelHeaderStyle}>
+              <div>
+                <div style={{ fontSize: "22px", fontWeight: 900 }}>
+                  {selectedLead.name} Panel
+                </div>
+                <div style={{ color: "#9fb1d1", marginTop: "4px", fontSize: "14px" }}>
+                  {selectedLead.location} • {getPropertyInfo(selectedLead) || "-"}
+                </div>
+              </div>
+
+              <button onClick={closeNotesPanel} style={closeNotesBtn}>
+                ×
+              </button>
+            </div>
+
+            <div style={notesMetaStyle}>
+              <span>{selectedLead.owner}</span>
+              <span>{selectedLead.status}</span>
+              <span>{formatCurrency(selectedLead.dealValue)}</span>
+              <span>{selectedLead.followUp || "-"}</span>
+            </div>
+
+            <div style={panelSectionTitle}>Call Log + Reschedule</div>
+
+            <div style={{ display: "grid", gap: "12px", marginBottom: "18px" }}>
+              <select
+                value={callOutcome}
+                onChange={(e) => setCallOutcome(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="">Select Call Outcome</option>
+                {callOutcomeOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="date"
+                value={rescheduleDate}
+                onChange={(e) => setRescheduleDate(e.target.value)}
+                style={inputStyle}
+              />
+
+              <textarea
+                value={newNoteText}
+                onChange={(e) => setNewNoteText(e.target.value)}
+                placeholder="Type call summary / next step note..."
+                style={notesTextareaStyle}
+              />
+
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button onClick={saveCallLogAndReschedule} style={primaryBtn}>
+                  Save Update
+                </button>
+                <button onClick={savePanelNote} style={secondaryBtn}>
+                  Save Note Only
+                </button>
+                <button
+                  onClick={() => {
+                    setNewNoteText("");
+                    setCallOutcome("");
+                  }}
+                  style={secondaryBtn}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div style={panelSectionTitle}>Notes History</div>
+
+            <div style={notesHistoryWrapStyle}>
+              {(selectedLead.notes || []).length === 0 ? (
+                <div style={emptyNotesStyle}>No notes added yet.</div>
+              ) : (
+                [...(selectedLead.notes || [])]
+                  .slice()
+                  .reverse()
+                  .map((note, index) => (
+                    <div key={`${selectedLead.id}-note-${index}`} style={singleNoteCardStyle}>
+                      {note}
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function SummaryPill({
+  label,
+  value,
+  onClick,
+  danger = false,
+}: {
+  label: string;
+  value: number;
+  onClick?: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: danger
+          ? "rgba(185,28,28,0.25)"
+          : "rgba(37,99,235,0.18)",
+        border: danger
+          ? "1px solid rgba(248,113,113,0.35)"
+          : "1px solid rgba(96,165,250,0.25)",
+        borderRadius: "16px",
+        padding: "14px 18px",
+        minWidth: "110px",
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+      }}
+    >
+      <div style={{ fontSize: "13px", color: "#9fb1d1" }}>{label}</div>
+      <div
+        style={{
+          fontSize: "20px",
+          fontWeight: 900,
+          color: danger ? "#fecaca" : "#ffffff",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ReminderPanel({
+  title,
+  subtitle,
+  items,
+  emptyText,
+  accent,
+  getPropertyInfo,
+  formatCurrency,
+  onEdit,
+}: {
+  title: string;
+  subtitle: string;
+  items: Lead[];
+  emptyText: string;
+  accent: "blue" | "red" | "amber";
+  getPropertyInfo: (lead: Lead) => string;
+  formatCurrency: (value: number | string) => string;
+  onEdit: (lead: Lead) => void;
+}) {
+  const accentMap = {
+    blue: {
+      bg: "rgba(37,99,235,0.14)",
+      border: "rgba(96,165,250,0.20)",
+      title: "#dbeafe",
+      badge: "#2563eb",
+    },
+    red: {
+      bg: "rgba(185,28,28,0.14)",
+      border: "rgba(248,113,113,0.20)",
+      title: "#fecaca",
+      badge: "#b91c1c",
+    },
+    amber: {
+      bg: "rgba(245,158,11,0.14)",
+      border: "rgba(251,191,36,0.22)",
+      title: "#fde68a",
+      badge: "#d97706",
+    },
+  }[accent];
+
+  return (
+    <div
+      style={{
+        background: "rgba(10, 20, 45, 0.95)",
+        border: `1px solid ${accentMap.border}`,
+        borderRadius: "24px",
+        padding: "18px",
+        boxShadow: "0 18px 40px rgba(0,0,0,0.18)",
+      }}
+    >
+      <div style={{ marginBottom: "14px" }}>
+        <div
+          style={{
+            fontSize: "18px",
+            fontWeight: 900,
+            color: accentMap.title,
+          }}
+        >
+          {title}
+        </div>
+        <div style={{ color: "#94a3b8", fontSize: "13px", marginTop: "4px" }}>
+          {subtitle}
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <div
+          style={{
+            padding: "18px",
+            borderRadius: "16px",
+            background: "rgba(8,22,50,0.75)",
+            color: "#93a4c3",
+            textAlign: "center",
+            fontSize: "14px",
+          }}
+        >
+          {emptyText}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: "12px" }}>
+          {items.slice(0, 4).map((lead) => (
+            <div
+              key={lead.id}
+              style={{
+                background: accentMap.bg,
+                border: `1px solid ${accentMap.border}`,
+                borderRadius: "18px",
+                padding: "14px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  alignItems: "flex-start",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: "15px", fontWeight: 800, color: "#fff" }}>
+                    {lead.name}
+                  </div>
+                  <div style={{ color: "#94a3b8", fontSize: "13px", marginTop: "4px" }}>
+                    {lead.location} • {getPropertyInfo(lead) || "-"}
+                  </div>
+                  <div style={{ color: "#cbd5e1", fontSize: "13px", marginTop: "6px" }}>
+                    {formatCurrency(lead.dealValue)} • {lead.owner}
+                  </div>
+                </div>
+
+                <span
+                  style={{
+                    padding: "7px 10px",
+                    borderRadius: "999px",
+                    background: accentMap.badge,
+                    color: "#fff",
+                    fontSize: "12px",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {lead.followUp}
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: "8px", marginTop: "12px", flexWrap: "wrap" }}>
+                <button onClick={() => onEdit(lead)} style={smallPanelBtn}>
+                  Open
+                </button>
+                <button
+                  onClick={() => {
+                    const url = `https://wa.me/${lead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(
+                      `Hi ${lead.name}, this is MEI Business OS. Following up on your property enquiry.`
+                    )}`;
+                    window.open(url, "_blank");
+                  }}
+                  style={smallPanelBtnAlt}
+                >
+                  WhatsApp
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const reminderGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: "16px",
+  marginBottom: "18px",
+};
+
+const smallPanelBtn: React.CSSProperties = {
+  background: "#2563eb",
+  color: "#fff",
+  border: "none",
+  borderRadius: "12px",
+  padding: "8px 12px",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const smallPanelBtnAlt: React.CSSProperties = {
+  background: "transparent",
+  color: "#93c5fd",
+  border: "1px solid rgba(96,165,250,0.20)",
+  borderRadius: "12px",
+  padding: "8px 12px",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const pillWrap: React.CSSProperties = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap",
+  marginBottom: "18px",
+};
+
+const chipsWrapStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  flexWrap: "wrap",
+  marginBottom: "16px",
+};
+
+const chipStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
+  padding: "10px 14px",
+  borderRadius: "999px",
+  background: "rgba(37,99,235,0.18)",
+  border: "1px solid rgba(96,165,250,0.22)",
+  color: "#dbeafe",
+  fontSize: "14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const topClearBtn: React.CSSProperties = {
+  background: "#1e40af",
+  color: "#fff",
+  border: "none",
+  borderRadius: "12px",
+  padding: "8px 14px",
+  fontSize: "14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const backBtn: React.CSSProperties = {
+  background: "transparent",
+  color: "#93c5fd",
+  border: "1px solid rgba(96,165,250,0.22)",
+  borderRadius: "12px",
+  padding: "8px 14px",
+  fontSize: "14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const cardStyle: React.CSSProperties = {
+  background: "rgba(10, 20, 45, 0.95)",
+  border: "1px solid rgba(96, 165, 250, 0.15)",
+  borderRadius: "24px",
+  padding: "22px",
+  marginBottom: "22px",
+  boxShadow: "0 18px 40px rgba(0,0,0,0.22)",
+};
+
+const tableCardStyle: React.CSSProperties = {
+  background: "rgba(10, 20, 45, 0.95)",
+  border: "1px solid rgba(96, 165, 250, 0.15)",
+  borderRadius: "24px",
+  overflowX: "auto",
+  overflowY: "auto",
+  maxHeight: "68vh",
+  position: "relative",
+};
+
+const cardTitle: React.CSSProperties = {
+  fontSize: "22px",
+  fontWeight: 700,
+  marginBottom: "14px",
+};
+
+const infoBarStyle: React.CSSProperties = {
+  marginBottom: "18px",
+  padding: "14px 16px",
+  borderRadius: "14px",
+  border: "1px solid rgba(59,130,246,0.18)",
+  background: "rgba(8, 26, 60, 0.65)",
+  color: "#93c5fd",
+  fontSize: "15px",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  background: "#081632",
+  color: "white",
+  border: "1px solid rgba(148,163,184,0.20)",
+  borderRadius: "16px",
+  padding: "16px 18px",
+  fontSize: "16px",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+const thStyle: React.CSSProperties = {
+  position: "sticky",
+  top: 0,
+  zIndex: 5,
+  padding: "18px 20px",
+  color: "#cbd5e1",
+  fontSize: "15px",
+  fontWeight: 700,
+  textAlign: "left",
+  verticalAlign: "middle",
+  background: "#09152b",
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "18px 20px",
+  fontSize: "15px",
+  color: "#ffffff",
+  verticalAlign: "middle",
+  borderBottom: "1px solid rgba(255,255,255,0.06)",
+  transition: "color 0.18s ease, background 0.18s ease",
+};
+
+const emptyTdStyle: React.CSSProperties = {
+  padding: "34px",
+  textAlign: "center",
+  color: "#94a3b8",
+  fontSize: "16px",
+};
+
+const pillSelectStyle: React.CSSProperties = {
+  border: "none",
+  color: "#fff",
+  borderRadius: "999px",
+  padding: "10px 16px",
+  fontSize: "14px",
+  fontWeight: 700,
+  outline: "none",
+  cursor: "pointer",
+  minWidth: "120px",
+};
+
+const overdueBadgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "8px 10px",
+  borderRadius: "999px",
+  background: "#b91c1c",
+  color: "#fff",
+  fontSize: "12px",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const primaryBtn: React.CSSProperties = {
+  background: "#2f6df6",
+  color: "white",
+  border: "none",
+  borderRadius: "16px",
+  padding: "14px 24px",
+  fontSize: "18px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const secondaryBtn: React.CSSProperties = {
+  background: "#1e293b",
+  color: "white",
+  border: "1px solid rgba(148,163,184,0.18)",
+  borderRadius: "16px",
+  padding: "14px 24px",
+  fontSize: "18px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const menuTriggerBtn: React.CSSProperties = {
+  background: "#132347",
+  color: "#fff",
+  border: "1px solid rgba(96,165,250,0.18)",
+  borderRadius: "12px",
+  padding: "8px 14px",
+  fontSize: "22px",
+  lineHeight: 1,
+  cursor: "pointer",
+  minWidth: "48px",
+};
+
+const menuPanelStyle: React.CSSProperties = {
+  position: "absolute",
+  right: "20px",
+  top: "60px",
+  minWidth: "170px",
+  background: "#081632",
+  border: "1px solid rgba(96,165,250,0.18)",
+  borderRadius: "16px",
+  boxShadow: "0 16px 30px rgba(0,0,0,0.35)",
+  padding: "8px",
+  zIndex: 30,
+};
+
+const menuItemStyle: React.CSSProperties = {
+  width: "100%",
+  textAlign: "left",
+  background: "transparent",
+  color: "#fff",
+  border: "none",
+  borderRadius: "12px",
+  padding: "12px 12px",
+  fontSize: "14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const notePreviewBtn: React.CSSProperties = {
+  width: "100%",
+  textAlign: "left",
+  background: "rgba(15,23,42,0.7)",
+  color: "#cbd5e1",
+  border: "1px solid rgba(96,165,250,0.10)",
+  borderRadius: "12px",
+  padding: "10px 12px",
+  fontSize: "13px",
+  lineHeight: 1.5,
+  cursor: "pointer",
+  whiteSpace: "normal",
+  wordBreak: "break-word",
+};
+
+const notesOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(2,6,23,0.55)",
+  zIndex: 100,
+  display: "flex",
+  justifyContent: "flex-end",
+};
+
+const notesPanelStyle: React.CSSProperties = {
+  width: "480px",
+  height: "100vh",
+  background: "#071330",
+  borderLeft: "1px solid rgba(96,165,250,0.16)",
+  boxShadow: "-12px 0 30px rgba(0,0,0,0.32)",
+  padding: "22px",
+  boxSizing: "border-box",
+  overflowY: "auto",
+};
+
+const notesPanelHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "14px",
+  marginBottom: "14px",
+};
+
+const closeNotesBtn: React.CSSProperties = {
+  background: "transparent",
+  color: "#fff",
+  border: "1px solid rgba(96,165,250,0.18)",
+  borderRadius: "12px",
+  width: "42px",
+  height: "42px",
+  fontSize: "24px",
+  cursor: "pointer",
+};
+
+const notesMetaStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "8px",
+  marginBottom: "16px",
+  color: "#cbd5e1",
+  fontSize: "13px",
+};
+
+const notesTextareaStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: "110px",
+  resize: "vertical",
+  background: "#081632",
+  color: "#fff",
+  border: "1px solid rgba(148,163,184,0.20)",
+  borderRadius: "16px",
+  padding: "14px 16px",
+  fontSize: "15px",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+const notesHistoryWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "12px",
+};
+
+const emptyNotesStyle: React.CSSProperties = {
+  padding: "18px",
+  borderRadius: "16px",
+  background: "rgba(8,22,50,0.75)",
+  color: "#93a4c3",
+  textAlign: "center",
+  fontSize: "14px",
+};
+
+const singleNoteCardStyle: React.CSSProperties = {
+  background: "rgba(10,20,45,0.95)",
+  border: "1px solid rgba(96,165,250,0.12)",
+  borderRadius: "16px",
+  padding: "14px",
+  color: "#e2e8f0",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  whiteSpace: "pre-wrap",
+};
+
+const panelSectionTitle: React.CSSProperties = {
+  fontSize: "16px",
+  fontWeight: 800,
+  color: "#dbeafe",
+  marginBottom: "10px",
+};
+
+export default LeadsPage;
